@@ -6,15 +6,17 @@ Day-to-day LLM endpoint for the Jetson AGX Xavier. One OpenAI/Anthropic-compatib
 
 ```
 config.yaml   — model definitions, copied/condensed from ../bench_llamacpp_vllm/models.yaml
-install.sh    — downloads the llama-swap v216 linux-arm64 binary
+install.sh    — downloads llama-swap, then builds llama-server from llama.cpp into ./bin
 start.sh      — launches it on :8090
-llama-swap    — the binary (after running install.sh)
+llama-swap    — the supervisor binary (after install.sh)
+bin/          — llama-server / llama-cli / llama-bench symlinks (after install.sh)
+vendor/       — llama.cpp source checkout (after install.sh)
 ```
 
 ## Quick start
 
 ```
-./install.sh         # one-time: pulls the binary
+./install.sh         # one-time: pulls llama-swap, builds llama-server
 ./start.sh           # foreground
 ```
 
@@ -61,7 +63,7 @@ These are configured in the bench project but were dropped or untested:
 
 ## Sister project
 
-`../bench_llamacpp_vllm/` — the benchmark harness that produced all these numbers. **It owns the `llama-server` binary** (built by `scripts/install_llamacpp.sh` and dropped at `bin/llama-server`). `config.yaml` here references it via absolute path. Don't move or rebuild that binary without updating `config.yaml`'s `llama_server` macro accordingly.
+`../bench_llamacpp_vllm/` — the benchmark harness that produced all these numbers. It has its own `llama-server` build; this project no longer depends on it. `install.sh` here builds its own copy into `./bin/` (same CUDA sm_72 / CMake flags), so the two projects can be updated independently.
 
 Other things from the bench project worth knowing:
 - `flush_mem.sh` in the bench dir (`sudo ./flush_mem.sh`) drops page cache + compacts memory. Useful between heavy back-to-back loads. llama-swap's TTL+process-exit cycle already gives the page cache a chance to drop, so usually unnecessary here.

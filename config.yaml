@@ -13,9 +13,9 @@ startPort: 5800                # ${PORT} starts here and auto-increments
 globalTTL: 600                 # models auto-unload after 10 min idle, freeing the GPU
 
 macros:
-  # Path to the llama-server binary we built in ../bench_llamacpp_vllm. The
-  # benchmark project owns the build; this project just uses it.
-  llama_server: /home/george/code/bench_llamacpp_vllm/bin/llama-server
+  # llama-server binary, built into ./bin by install.sh. Relative path resolves
+  # against llama-swap's cwd, which start.sh pins to this directory.
+  llama_server: ./bin/llama-server
 
   # Where the GGUFs live (moved off ~/models earlier).
   gguf_dir: /data/models/gguf

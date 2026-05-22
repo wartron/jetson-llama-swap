@@ -16,11 +16,11 @@ fi
 PORT="${LLAMA_SWAP_PORT:-8090}"
 HOST="${LLAMA_SWAP_HOST:-127.0.0.1}"
 
-# llama-server build lives in the bench project; sanity-check it's there.
-LLS=/home/george/code/bench_llamacpp_vllm/bin/llama-server
+# llama-server is built into ./bin by install.sh.
+LLS=./bin/llama-server
 [ -x "$LLS" ] || {
     echo "llama-server not found at $LLS" >&2
-    echo "Build it from the bench_llamacpp_vllm project first." >&2
+    echo "Run ./install.sh first to build it." >&2
     exit 1
 }
 
