@@ -116,6 +116,15 @@ Currently `qwen35-9b-mtp` carries the `claude-opus-4-7` alias and runs at **96k 
 
 **Why qwen35-9b-mtp and not qwen25-coder-7b**: Claude Code needs the upstream to emit structured `tool_use` content blocks. Tested both — Qwen2.5-Coder emits the call as plain `<tools>{"name":...,"arguments":...}</tools>` text (it's code-tuned, not agent-tuned), so llama.cpp's tool-call parser doesn't recognize it (`Chat format: peg-native` in the upstream logs), Claude Code never sees a tool call, and the model confabulates file contents. Qwen3.5-9B has dedicated function-calling training and emits proper `tool_use` blocks (plus a `thinking` block, which Claude Code handles). Trade-off: ~13.5 tok/s vs 20+ for the coder, and every turn pays a hidden-think TTFT.
 
+**Why 96k and not 256k (the model's native max)** — four reasons, in rough order of bite:
+
+1. *KV cache is the dominant GPU cost at long context, not the weights.* Qwen3.5-9B Q6_K is ~7.7 GB of weights, but each token of KV at q8 across ~40 layers / 8 KV heads / 128 head_dim is ~80 KB. So 96k ≈ 7.7 GB of KV, 196k ≈ 15 GB, 256k ≈ 20 GB. Xavier has 32 GB total unified — model + KV + draft + activations + scratch is already tight at 96k. Higher risks OOM during prefill of a long prompt (loads fine, then crashes mid-conversation).
+2. *Prefill scales linearly with prompt length.* This build does ~200 prefill tok/s. A full 96k prompt is already ~8 min of "cursor sitting there" before any output; 256k would be ~21 min per turn. Thinking-model TTFT compounds on top of that.
+3. *Effective recall < nominal context.* "Native to 256k" means the model was *trained* on sequences that long, not that 9B-class retrieval stays sharp at the limit. Pushing past ~half the nominal max tends to mean the model politely makes things up rather than flagging that it didn't find the relevant chunk.
+4. *Diminishing returns vs. /compact.* Claude Code auto-compacts history. System prompt + tools is ~24k *fixed*; the rest is conversation. 96k − 24k = ~72k of conversation room (hundreds of turns before compact triggers). Doubling that mostly buys a more bloated conversation, not a more capable one.
+
+If a session does start hitting 96k regularly, pushing to ~131k is fine; beyond that, prefill latency starts to dominate.
+
 
 ## Things worth trying next
 
