@@ -84,9 +84,17 @@ install_llama_server() {
     echo "[3/5] cmake configure (CUDA, sm_72)"
     cd "$SRC"
     rm -rf build
+    # Same flags the bench project's vendor build uses (sm_72 / Volta). One
+    # addition: GGML_CUDA_FA_ALL_QUANTS=ON. Our model lineup mixes Q6_K, Q5_K_M,
+    # Q4_K_M, Q8_0, Q3_K_S, IQ3_XXS plus KV-q8 — the default FA-quant subset
+    # misses some of those, and llama.cpp silently falls back to the slow non-FA
+    # path when a kernel is missing. Compiling all quants costs build time, not
+    # runtime, and guarantees flash-attn is actually engaged for every config
+    # in config.yaml.
     cmake -B build \
         -DGGML_CUDA=ON \
         -DCMAKE_CUDA_ARCHITECTURES=72 \
+        -DGGML_CUDA_FA_ALL_QUANTS=ON \
         -DLLAMA_CURL=ON \
         -DCMAKE_BUILD_TYPE=Release
 

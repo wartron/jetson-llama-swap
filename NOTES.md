@@ -101,6 +101,44 @@ In rough order of expected value (from REPORT_5 "open experiments" list):
 2. **`--cpu-moe` on the qwen3.x-35b-a3b variants** as the principled replacement for the `-fit off` hack. They'll be slow (~7 tok/s, per gemma4-26b-q4km data) but at least cleanly configurable.
 3. **A separate small thinking-model draft** (Qwen3.5-0.8B) for the 9B/27B Qwen3.5 targets, to compare against MTP. Might displace MTP if acceptance is higher.
 
+## llama-server build flags (and why)
+
+`install.sh` builds llama-server from `vendor/llama.cpp` with these CMake flags:
+
+```
+-DGGML_CUDA=ON
+-DCMAKE_CUDA_ARCHITECTURES=72       # Volta on Xavier
+-DGGML_CUDA_FA_ALL_QUANTS=ON        # compile FA kernels for every quant we use
+-DLLAMA_CURL=ON
+-DCMAKE_BUILD_TYPE=Release
+```
+
+`Release` mode auto-enables the things that matter on this board: `GGML_NATIVE` (picks up NEON / ARM_FMA), `GGML_CCACHE`, `GGML_CUDA_FA`, `GGML_CUDA_GRAPHS`, CUDA VMM. Verified against the bench project's `build/CMakeCache.txt`.
+
+The non-obvious one is **`GGML_CUDA_FA_ALL_QUANTS=ON`**. By default llama.cpp only compiles flash-attention kernels for a common subset of quant types — Q4_0, Q4_1, Q8_0, F16. Our `config.yaml` mixes Q6_K targets, Q8_0 KV cache, Q4_K_M drafts, Q5_K_M, Q3_K_S, IQ3_XXS — if any of those combinations hit a missing kernel, FA silently falls back to a non-FA path that's significantly slower (and we wouldn't notice from tok/s alone since it just degrades quietly). `FA_ALL_QUANTS` makes the build slower but guarantees FA is actually engaged for every config we run. Tradeoff is build time only, not runtime.
+
+### Flags considered but not set
+
+- **`GGML_CUDA_FORCE_MMQ=ON`** — forces MMQ kernels over cuBLAS. Sometimes a win on older arch (Pascal). The bench project tested it on/off in early sweeps (see `logs/llamacpp-7B_Q4_K_M_+_MMQ_off-*` from 2026-05-17) and didn't enable it as the default — keeping default OFF until re-measured on this lineup.
+- **`GGML_LTO=ON`** — link-time optimization, default OFF. Marginal runtime win for substantially longer link step. Skipped.
+- **`GGML_CUDA_NO_PEER_COPY=ON`** — only relevant for multi-GPU; Xavier is single-GPU. Default OFF is correct.
+
+### Rebuilding
+
+```
+rm -rf vendor/llama.cpp/build
+./install.sh         # picks up the missing build, prompts to rebuild
+```
+
+To pull in a new upstream llama.cpp commit:
+
+```
+git -C vendor/llama.cpp fetch --depth 1 origin
+git -C vendor/llama.cpp reset --hard origin/master
+rm -rf vendor/llama.cpp/build
+./install.sh
+```
+
 ## Diagnostics
 
 - `llama-swap` binary version: `./llama-swap --version`
