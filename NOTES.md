@@ -5,12 +5,13 @@ Day-to-day LLM endpoint for the Jetson AGX Xavier. One OpenAI/Anthropic-compatib
 ## What's here
 
 ```
-config.yaml   — model definitions, copied/condensed from ../bench_llamacpp_vllm/models.yaml
-install.sh    — downloads llama-swap, then builds llama-server from llama.cpp into ./bin
-start.sh      — launches it on :8090
-llama-swap    — the supervisor binary (after install.sh)
-bin/          — llama-server / llama-cli / llama-bench symlinks (after install.sh)
-vendor/       — llama.cpp source checkout (after install.sh)
+config.yaml          — model definitions, copied/condensed from ../bench_llamacpp_vllm/models.yaml
+install.sh           — downloads llama-swap, then builds llama-server from llama.cpp into ./bin
+start.sh             — launches it on :8090
+service-install.sh   — install/uninstall the systemd unit so it starts at boot
+llama-swap           — the supervisor binary (after install.sh)
+bin/                 — llama-server / llama-cli / llama-bench symlinks (after install.sh)
+vendor/              — llama.cpp source checkout (after install.sh)
 ```
 
 ## Quick start
@@ -23,6 +24,16 @@ vendor/       — llama.cpp source checkout (after install.sh)
 Then point any OpenAI-compatible client at `http://localhost:8090/v1` (or `http://<jetson-ip>:8090/v1` from another box). The `model` field selects which underlying llama-server gets spawned (or hit, if already loaded).
 
 Binds on `0.0.0.0:8090` by default. To restrict to loopback: `LLAMA_SWAP_HOST=127.0.0.1 ./start.sh`.
+
+To run as a systemd service that comes up at boot:
+
+```
+./service-install.sh install     # writes /etc/systemd/system/llamaswap.service, enables + starts
+./service-install.sh             # shows current status
+./service-install.sh uninstall   # stops + disables + removes
+```
+
+Unit runs as the invoking user (not root) so it inherits the same CUDA / GPU access as interactive runs. Logs: `journalctl -u llamaswap -f`.
 
 ## Available models (and what they actually deliver)
 
