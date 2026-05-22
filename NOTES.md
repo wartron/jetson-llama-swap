@@ -1,0 +1,111 @@
+# llamaswap — notes for the next session
+
+Day-to-day LLM endpoint for the Jetson AGX Xavier. One OpenAI/Anthropic-compatible HTTP server, multiple model configs, hot-swapped per request, auto-unloaded after idle.
+
+## What's here
+
+```
+config.yaml   — model definitions, copied/condensed from ../bench_llamacpp_vllm/models.yaml
+install.sh    — downloads the llama-swap v216 linux-arm64 binary
+start.sh      — launches it on :8090
+llama-swap    — the binary (after running install.sh)
+```
+
+## Quick start
+
+```
+./install.sh         # one-time: pulls the binary
+./start.sh           # foreground
+```
+
+Then point any OpenAI-compatible client at `http://localhost:8090/v1`. The `model` field selects which underlying llama-server gets spawned (or hit, if already loaded).
+
+To bind on the LAN: `LLAMA_SWAP_HOST=0.0.0.0 ./start.sh`.
+
+## Available models (and what they actually deliver)
+
+All numbers measured on the same Xavier, coding-category sweeps, KV-q8 + the flags shown in `config.yaml`'s `speed_flags` macro. Full per-prompt data lives in `../bench_llamacpp_vllm/results/` and `REPORT_5.md` over there.
+
+| Model name | Alias | Speed (gen tok/s) | TTFT | Notes |
+|---|---|---:|---:|---|
+| `qwen25-coder-7b` | `coder`, `fast` | **20.8** | 0.98 s | Best interactive overall (KV-q8 + 0.5B-Coder draft, ~85% acceptance) |
+| `qwen25-14b` | `14b`, `smart` | **13.5** | 2.09 s | Best 14B-class (same draft pairing) |
+| `qwen35-9b-mtp` | `thinking`, `9b` | **13.6** | thinking | Best thinking model (Unsloth MTP heads, n_max=4) |
+| `qwen25-coder-3b` | `tiny`, `3b` | 28.6 | 0.6 s | Fastest, limited capability |
+| `qwen35-4b` | — | 13.8 | thinking | Small thinking model |
+| `nemotron-nano-9b` | — | 11.7 | thinking | NVIDIA reasoning |
+| `deepseek-r1-14b` | — | 28 (inflated) | thinking | Heavy hidden reasoning |
+| `gemma4-e4b` | — | ~27 (inflated) | thinking | 4B-effective dense, Gemma-4 PLE |
+| `gemma4-26b-q3ks` | `gemma-fast` | 58.7 | 120 s | High throughput, slow TTFT (thinking) |
+| `gemma4-26b-q4km` | — | 6.8 | 75 s | Higher quant; experts on CPU |
+
+For thinking models, "gen tok/s" can read inflated because the gen window is short — trust end-to-end (total) where the bench harness records it. TTFT for thinking models is end-of-think, not first visible token.
+
+## Why these specific configs
+
+Three things came out of the bench-project work and are baked in here:
+
+1. **KV-q8 by default** (`-ctk q8_0 -ctv q8_0` in `speed_flags` macro). Halves KV memory at no measurable speed cost on Volta, gives ~88% more effective context per cache budget. Origin: REPORT_4 in the bench project.
+
+2. **Dedicated 0.5B-Coder draft on the 7B and 14B targets.** Qwen2.5 family shares the Qwen2 tokenizer so a Coder-tuned draft works for Instruct targets too. Measured ~85% acceptance on coding workloads → 2× speedup. The 32B coder *would* benefit but can't co-load — see "NvMap ceiling" below.
+
+3. **MTP heads on Qwen3.5 with `n_max=4` (not 16).** The default `--spec-draft-n-max 16` collapsed acceptance to ~28% (1.03×) on the thinking 9B. Dropping to 4 lifted acceptance to ~70% (1.48×). Don't change this without re-measuring.
+
+## What's NOT in here (and why)
+
+These are configured in the bench project but were dropped or untested:
+
+- **qwen25-coder-32b-q4km** — confirmed via probe that the 18.5 GB target can't be allocated as a single CUDA buffer on Xavier (NvMap single-block ceiling). Would need partial offload, which kills spec-decoding ROI.
+- **qwen36-27b-q4km, qwen3.x-35b-a3b-iq3xxs, nemotron3-nano-30b-a3b** — same NvMap territory or untested at current defaults. `--cpu-moe` works for these as an escape hatch (~7 tok/s, see gemma4-26b-q4km) but isn't a speed win.
+- **apriel-nemotron-15b-q4km** — had jinja chat template issues in earlier sweeps; YAML in bench project forces chatml but hasn't been re-swept since.
+
+## Sister project
+
+`../bench_llamacpp_vllm/` — the benchmark harness that produced all these numbers. **It owns the `llama-server` binary** (built by `scripts/install_llamacpp.sh` and dropped at `bin/llama-server`). `config.yaml` here references it via absolute path. Don't move or rebuild that binary without updating `config.yaml`'s `llama_server` macro accordingly.
+
+Other things from the bench project worth knowing:
+- `flush_mem.sh` in the bench dir (`sudo ./flush_mem.sh`) drops page cache + compacts memory. Useful between heavy back-to-back loads. llama-swap's TTL+process-exit cycle already gives the page cache a chance to drop, so usually unnecessary here.
+- `models.yaml` in the bench dir is the source of truth for measurements; `config.yaml` here is the *production translation* of the proven configs.
+- Reports `REPORT.md` through `REPORT_5.md` document the perf journey — most relevant ones for tuning decisions:
+  - `REPORT_4.md` — KV-q8 + speculative decoding deep dive
+  - `REPORT_5.md` — current lineup status
+
+## Common operations
+
+```
+# Start it
+./start.sh
+
+# What's currently loaded
+curl -s http://localhost:8090/v1/models | python3 -m json.tool
+
+# Force-unload everything (frees GPU)
+curl -X POST http://localhost:8090/api/unload
+
+# Tail logs
+curl -N http://localhost:8090/logs/stream
+
+# Test a model — alias works
+curl -s http://localhost:8090/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "fast", "messages": [{"role":"user","content":"hello"}], "max_tokens": 32}'
+```
+
+## Things worth trying next
+
+In rough order of expected value (from REPORT_5 "open experiments" list):
+
+1. **MTP `n_max=4` on bigger MTP variants** (Qwen3.5-27B-MTP, Qwen3.5-35B-A3B-MTP from Unsloth). Bigger target → more wall-clock saved per accepted token. Pull, add to config, measure.
+2. **`--cpu-moe` on the qwen3.x-35b-a3b variants** as the principled replacement for the `-fit off` hack. They'll be slow (~7 tok/s, per gemma4-26b-q4km data) but at least cleanly configurable.
+3. **A separate small thinking-model draft** (Qwen3.5-0.8B) for the 9B/27B Qwen3.5 targets, to compare against MTP. Might displace MTP if acceptance is higher.
+
+## Diagnostics
+
+- `llama-swap` binary version: `./llama-swap --version`
+- GPU state: `tegrastats --interval 1000` or `cat /proc/meminfo | grep -i cuda` (no /proc/cuda on Tegra — use `tegrastats` for GR3D_FREQ)
+- If a model fails to load: check `http://localhost:8090/logs/stream/upstream` — it shows the raw llama-server output for the most recent swap.
+
+## Don't repeat these mistakes
+
+- **Don't add `cma=<size>` to `/boot/extlinux/extlinux.conf`.** Tried it during the bench session — kernel rejects sizes >4G and even smaller values broke nvgpu firmware init, killing the GPU until the boot arg was removed. NvMap manages its own pool independent of generic CMA. Use `--cpu-moe` or smaller quants instead.
+- **Don't run single-model sweeps back-to-back without flushing memory** — page cache fragmentation can cause SIGSEGV on the next model load. The bench harness's `flush_mem.sh` (or llama-swap's TTL-based unload) is the safe path.

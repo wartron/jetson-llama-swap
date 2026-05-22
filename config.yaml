@@ -1,0 +1,185 @@
+# llama-swap config for Jetson AGX Xavier (32GB unified, Volta sm_7.2).
+#
+# Proxies one OpenAI/Anthropic-compatible HTTP endpoint and hot-swaps the
+# underlying llama-server process per requested model. Every entry below
+# is a config that's been measured in ../bench_llamacpp_vllm — see
+# NOTES.md for the speed numbers.
+#
+# Reload: `pkill -HUP llama-swap` (or just restart via start.sh).
+
+healthCheckTimeout: 120        # most models load in <30s, but the 32B and big MoEs need longer
+logLevel: info
+startPort: 5800                # ${PORT} starts here and auto-increments
+globalTTL: 600                 # models auto-unload after 10 min idle, freeing the GPU
+
+macros:
+  # Path to the llama-server binary we built in ../bench_llamacpp_vllm. The
+  # benchmark project owns the build; this project just uses it.
+  llama_server: /home/george/code/bench_llamacpp_vllm/bin/llama-server
+
+  # Where the GGUFs live (moved off ~/models earlier).
+  gguf_dir: /data/models/gguf
+
+  # Speed flags applied to every model — see REPORT_4 in the bench project.
+  # KV-q8 cuts KV-cache bytes-per-token in half with no measurable speed cost
+  # on Volta; flash-attn + 512 batch/microbatch is the empirical Xavier sweet
+  # spot.
+  speed_flags: >-
+    -fa on
+    -b 512 -ub 512
+    -ctk q8_0 -ctv q8_0
+    --no-warmup
+    --metrics
+
+  # The 0.5B-Coder draft, paired with the 7B and 14B targets for ~2x speedup.
+  # Shares Qwen2 tokenizer with both Coder and Instruct variants of Qwen2.5.
+  spec_coder_draft: >-
+    --model-draft /data/models/gguf/Qwen2.5-Coder-0.5B-Instruct-Q4_K_M.gguf
+    --gpu-layers-draft 99
+    --spec-draft-n-max 16
+    --spec-draft-p-min 0.75
+
+models:
+  # =========================================================================
+  # Interactive picks — proven wins from the benchmark sweeps
+  # =========================================================================
+
+  qwen25-coder-7b:
+    name: "Qwen2.5-Coder 7B Q6_K + 0.5B spec"
+    description: "Best interactive config: 20.8 tok/s, sub-second TTFT. Coder-tuned."
+    aliases: ["coder", "fast"]
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/Qwen2.5-Coder-7B-Instruct-Q6_K.gguf
+      -c 2048 -ngl 99
+      ${speed_flags}
+      ${spec_coder_draft}
+      -a qwen25-coder-7b
+      --host 127.0.0.1 --port ${PORT}
+
+  qwen25-14b:
+    name: "Qwen2.5 14B Q5_K_M + 0.5B spec"
+    description: "Best 14B-class on this board: 13.5 tok/s with ~85% draft acceptance."
+    aliases: ["14b", "smart"]
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/Qwen2.5-14B-Instruct-Q5_K_M.gguf
+      -c 8192 -ngl 99
+      ${speed_flags}
+      ${spec_coder_draft}
+      -a qwen25-14b
+      --host 127.0.0.1 --port ${PORT}
+
+  qwen35-9b-mtp:
+    name: "Qwen3.5 9B Q6_K (Unsloth MTP, n_max=4)"
+    description: "Best thinking-model config: 13.5 tok/s via built-in MTP heads."
+    aliases: ["thinking", "9b"]
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/Qwen3.5-9B-Q6_K.gguf
+      -c 8192 -ngl 99
+      ${speed_flags}
+      --spec-type draft-mtp --spec-draft-n-max 4
+      -a qwen35-9b-mtp
+      --host 127.0.0.1 --port ${PORT}
+
+  # =========================================================================
+  # Speed/small picks
+  # =========================================================================
+
+  qwen25-coder-3b:
+    name: "Qwen2.5-Coder 3B Q4_K_M"
+    description: "Fastest coder we have. 28 tok/s, 0.6s TTFT. Limited capability."
+    aliases: ["tiny", "3b"]
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/Qwen2.5-Coder-3B-Instruct-Q4_K_M.gguf
+      -c 2048 -ngl 99
+      ${speed_flags}
+      -a qwen25-coder-3b
+      --host 127.0.0.1 --port ${PORT}
+
+  qwen35-4b:
+    name: "Qwen3.5 4B Q8_0"
+    description: "Small thinking model. 13.8 tok/s end-to-end."
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/Qwen_Qwen3.5-4B-Q8_0.gguf
+      -c 8192 -ngl 99
+      ${speed_flags}
+      -a qwen35-4b
+      --host 127.0.0.1 --port ${PORT}
+
+  # =========================================================================
+  # Other configured-and-measured models
+  # =========================================================================
+
+  nemotron-nano-9b:
+    name: "Nemotron-Nano 9B v2 Q4_K_M"
+    description: "NVIDIA's reasoning-tuned 9B. ~11.7 tok/s. Hidden <think> block."
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/nvidia_NVIDIA-Nemotron-Nano-9B-v2-Q4_K_M.gguf
+      -c 8192 -ngl 99
+      ${speed_flags}
+      -a nemotron-nano-9b
+      --host 127.0.0.1 --port ${PORT}
+
+  deepseek-r1-14b:
+    name: "DeepSeek-R1 Distill Qwen-14B Q5_K_M"
+    description: "Reasoning model in the 14B class. TTFT is hidden-think time."
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/DeepSeek-R1-Distill-Qwen-14B-Q5_K_M.gguf
+      -c 8192 -ngl 99
+      ${speed_flags}
+      -a deepseek-r1-14b
+      --host 127.0.0.1 --port ${PORT}
+
+  gemma4-e4b:
+    name: "Gemma-4 E4B Q8_0"
+    description: "Effective-4B dense via Per-Layer Embeddings. Thinking model."
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/google_gemma-4-E4B-it-Q8_0.gguf
+      -c 8192 -ngl 99
+      ${speed_flags}
+      -a gemma4-e4b
+      --host 127.0.0.1 --port ${PORT}
+
+  # =========================================================================
+  # MoEs — big total params, ~3-4B active. See NOTES.md for the NvMap story.
+  # =========================================================================
+
+  gemma4-26b-q3ks:
+    name: "Gemma-4 26B A4B Q3_K_S"
+    description: "26B MoE, fits fully on GPU at Q3_K_S. 58 gen tok/s but 120s TTFT (thinking)."
+    aliases: ["gemma-fast"]
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/google_gemma-4-26B-A4B-it-Q3_K_S.gguf
+      -c 4096 -ngl 99
+      ${speed_flags}
+      -a gemma4-26b-q3ks
+      --host 127.0.0.1 --port ${PORT}
+
+  gemma4-26b-q4km:
+    name: "Gemma-4 26B A4B Q4_K_M (--cpu-moe)"
+    description: "Same 26B at higher quant; experts on CPU because the dense bits already use ~half GPU. ~7 tok/s."
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/google_gemma-4-26B-A4B-it-Q4_K_M.gguf
+      -c 4096 -ngl 99
+      ${speed_flags}
+      --cpu-moe
+      -a gemma4-26b-q4km
+      --host 127.0.0.1 --port ${PORT}
+
+# Not configured here because they haven't been measured cleanly in the
+# bench project at current defaults — see NOTES.md "untested" list:
+#   qwen25-coder-32b-q4km   (fails to load fully on GPU)
+#   qwen36-27b-q4km
+#   qwen35-35b-a3b-iq3xxs
+#   qwen36-35b-a3b-iq3xxs
+#   nemotron3-nano-30b-a3b-iq3xxs
+#   apriel-nemotron-15b-q4km
