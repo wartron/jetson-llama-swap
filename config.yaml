@@ -46,12 +46,12 @@ models:
 
   qwen25-coder-7b:
     name: "Qwen2.5-Coder 7B Q6_K + 0.5B spec"
-    description: "Best interactive config: 20.8 tok/s, sub-second TTFT. Coder-tuned."
-    aliases: ["coder", "fast"]
+    description: "Best interactive config: 20.8 tok/s, sub-second TTFT. Coder-tuned. 32k ctx (Qwen2.5 native) for Claude Code."
+    aliases: ["coder", "fast", "claude-opus-4-7"]
     cmd: |
       ${llama_server}
       -m ${gguf_dir}/Qwen2.5-Coder-7B-Instruct-Q6_K.gguf
-      -c 2048 -ngl 99
+      -c 32768 -ngl 99
       ${speed_flags}
       ${spec_coder_draft}
       -a qwen25-coder-7b
@@ -139,7 +139,6 @@ models:
   gemma4-e4b:
     name: "Gemma-4 E4B Q8_0"
     description: "Effective-4B dense via Per-Layer Embeddings. Thinking model."
-    aliases: ["claude-opus-4-7"]
     cmd: |
       ${llama_server}
       -m ${gguf_dir}/google_gemma-4-E4B-it-Q8_0.gguf

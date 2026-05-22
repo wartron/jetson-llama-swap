@@ -41,14 +41,14 @@ All numbers measured on the same Xavier, coding-category sweeps, KV-q8 + the fla
 
 | Model name | Alias | Speed (gen tok/s) | TTFT | Notes |
 |---|---|---:|---:|---|
-| `qwen25-coder-7b` | `coder`, `fast` | **20.8** | 0.98 s | Best interactive overall (KV-q8 + 0.5B-Coder draft, ~85% acceptance) |
+| `qwen25-coder-7b` | `coder`, `fast`, `claude-opus-4-7` | **20.8** | 0.98 s | Best interactive overall (KV-q8 + 0.5B-Coder draft, ~85% acceptance). 32k ctx for Claude Code. |
 | `qwen25-14b` | `14b`, `smart` | **13.5** | 2.09 s | Best 14B-class (same draft pairing) |
 | `qwen35-9b-mtp` | `thinking`, `9b` | **13.6** | thinking | Best thinking model (Unsloth MTP heads, n_max=4) |
 | `qwen25-coder-3b` | `tiny`, `3b` | 28.6 | 0.6 s | Fastest, limited capability |
 | `qwen35-4b` | — | 13.8 | thinking | Small thinking model |
 | `nemotron-nano-9b` | — | 11.7 | thinking | NVIDIA reasoning |
 | `deepseek-r1-14b` | — | 28 (inflated) | thinking | Heavy hidden reasoning |
-| `gemma4-e4b` | `claude-opus-4-7` | ~27 (inflated) | thinking | 4B-effective dense, Gemma-4 PLE. Alias lets Claude Code point here. |
+| `gemma4-e4b` | — | ~27 (inflated) | thinking | 4B-effective dense, Gemma-4 PLE |
 | `gemma4-26b-q3ks` | `gemma-fast` | 58.7 | 120 s | High throughput, slow TTFT (thinking) |
 | `gemma4-26b-q4km` | — | 6.8 | 75 s | Higher quant; experts on CPU |
 
@@ -112,9 +112,9 @@ Claude Code (the CLI) talks the Anthropic `/v1/messages` protocol and hard-codes
 ANTHROPIC_BASE_URL=http://<jetson-ip>:8090 claude
 ```
 
-Currently `gemma4-e4b` carries the `claude-opus-4-7` alias. To repoint at a different local model (e.g. the coder), move the alias in `config.yaml` and `kill -HUP` the llama-swap process — no restart needed.
+Currently `qwen25-coder-7b` carries the `claude-opus-4-7` alias and runs at 32k context (Qwen2.5 native) so the large Claude Code system prompt + tools fits. To repoint at a different local model, move the alias in `config.yaml`, ensure that model's `-c` is large enough (Claude Code's prompt is ~24k+), then `curl -X POST :8090/api/unload && kill -HUP $(pgrep llama-swap)` — unloading is needed because a config reload alone doesn't recycle already-running upstreams.
 
-Caveat: Claude Code expects real tool-use semantics. Gemma-4 E4B will chat fine but tool calls may be flaky; `qwen25-coder-7b` is the better target if you need file/bash tools to actually work.
+Caveat: Claude Code expects real tool-use semantics. Qwen2.5-Coder is the strongest local target for that; smaller / thinking-only models (gemma4-e4b, qwen35-4b) will chat but tool calls are unreliable.
 
 
 ## Things worth trying next
