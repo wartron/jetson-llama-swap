@@ -3,7 +3,7 @@
 #
 # Env vars:
 #   LLAMA_SWAP_PORT  - HTTP port (default 8090)
-#   LLAMA_SWAP_HOST  - bind address (default 127.0.0.1; use 0.0.0.0 for LAN)
+#   LLAMA_SWAP_HOST  - bind address (default 0.0.0.0; set 127.0.0.1 for loopback only)
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -14,7 +14,7 @@ if [ ! -x ./llama-swap ]; then
 fi
 
 PORT="${LLAMA_SWAP_PORT:-8090}"
-HOST="${LLAMA_SWAP_HOST:-127.0.0.1}"
+HOST="${LLAMA_SWAP_HOST:-0.0.0.0}"
 
 # llama-server is built into ./bin by install.sh.
 LLS=./bin/llama-server

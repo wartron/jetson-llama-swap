@@ -20,9 +20,9 @@ vendor/       — llama.cpp source checkout (after install.sh)
 ./start.sh           # foreground
 ```
 
-Then point any OpenAI-compatible client at `http://localhost:8090/v1`. The `model` field selects which underlying llama-server gets spawned (or hit, if already loaded).
+Then point any OpenAI-compatible client at `http://localhost:8090/v1` (or `http://<jetson-ip>:8090/v1` from another box). The `model` field selects which underlying llama-server gets spawned (or hit, if already loaded).
 
-To bind on the LAN: `LLAMA_SWAP_HOST=0.0.0.0 ./start.sh`.
+Binds on `0.0.0.0:8090` by default. To restrict to loopback: `LLAMA_SWAP_HOST=127.0.0.1 ./start.sh`.
 
 ## Available models (and what they actually deliver)
 
