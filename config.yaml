@@ -46,12 +46,12 @@ models:
 
   qwen25-coder-7b:
     name: "Qwen2.5-Coder 7B Q6_K + 0.5B spec"
-    description: "Best interactive config: 20.8 tok/s, sub-second TTFT. Coder-tuned. 32k ctx (Qwen2.5 native) for Claude Code."
-    aliases: ["coder", "fast", "claude-opus-4-7"]
+    description: "Best interactive config: 20.8 tok/s, sub-second TTFT. Coder-tuned."
+    aliases: ["coder", "fast"]
     cmd: |
       ${llama_server}
       -m ${gguf_dir}/Qwen2.5-Coder-7B-Instruct-Q6_K.gguf
-      -c 32768 -ngl 99
+      -c 2048 -ngl 99
       ${speed_flags}
       ${spec_coder_draft}
       -a qwen25-coder-7b
@@ -72,12 +72,12 @@ models:
 
   qwen35-9b-mtp:
     name: "Qwen3.5 9B Q6_K (Unsloth MTP, n_max=4)"
-    description: "Best thinking-model config: 13.5 tok/s via built-in MTP heads."
-    aliases: ["thinking", "9b"]
+    description: "Best thinking-model config: 13.5 tok/s via built-in MTP heads. Emits structured tool_use blocks, so this is the Claude Code target. 96k single-slot ctx for long Claude Code sessions."
+    aliases: ["thinking", "9b", "claude-opus-4-7"]
     cmd: |
       ${llama_server}
       -m ${gguf_dir}/Qwen3.5-9B-Q6_K.gguf
-      -c 8192 -ngl 99
+      -c 98304 -np 1 -ngl 99
       ${speed_flags}
       --spec-type draft-mtp --spec-draft-n-max 4
       -a qwen35-9b-mtp

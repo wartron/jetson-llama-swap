@@ -41,9 +41,9 @@ All numbers measured on the same Xavier, coding-category sweeps, KV-q8 + the fla
 
 | Model name | Alias | Speed (gen tok/s) | TTFT | Notes |
 |---|---|---:|---:|---|
-| `qwen25-coder-7b` | `coder`, `fast`, `claude-opus-4-7` | **20.8** | 0.98 s | Best interactive overall (KV-q8 + 0.5B-Coder draft, ~85% acceptance). 32k ctx for Claude Code. |
+| `qwen25-coder-7b` | `coder`, `fast` | **20.8** | 0.98 s | Best interactive overall (KV-q8 + 0.5B-Coder draft, ~85% acceptance) |
 | `qwen25-14b` | `14b`, `smart` | **13.5** | 2.09 s | Best 14B-class (same draft pairing) |
-| `qwen35-9b-mtp` | `thinking`, `9b` | **13.6** | thinking | Best thinking model (Unsloth MTP heads, n_max=4) |
+| `qwen35-9b-mtp` | `thinking`, `9b`, `claude-opus-4-7` | **13.6** | thinking | Best thinking model (Unsloth MTP heads, n_max=4). 96k single-slot ctx for Claude Code; emits structured `tool_use` blocks. Model native ctx = 256k if more is needed. |
 | `qwen25-coder-3b` | `tiny`, `3b` | 28.6 | 0.6 s | Fastest, limited capability |
 | `qwen35-4b` | — | 13.8 | thinking | Small thinking model |
 | `nemotron-nano-9b` | — | 11.7 | thinking | NVIDIA reasoning |
@@ -112,9 +112,9 @@ Claude Code (the CLI) talks the Anthropic `/v1/messages` protocol and hard-codes
 ANTHROPIC_BASE_URL=http://<jetson-ip>:8090 claude
 ```
 
-Currently `qwen25-coder-7b` carries the `claude-opus-4-7` alias and runs at 32k context (Qwen2.5 native) so the large Claude Code system prompt + tools fits. To repoint at a different local model, move the alias in `config.yaml`, ensure that model's `-c` is large enough (Claude Code's prompt is ~24k+), then `curl -X POST :8090/api/unload && kill -HUP $(pgrep llama-swap)` — unloading is needed because a config reload alone doesn't recycle already-running upstreams.
+Currently `qwen35-9b-mtp` carries the `claude-opus-4-7` alias and runs at **96k context with a single slot** (`-c 98304 -np 1`) so a long Claude Code session fits. The single-slot setup is appropriate here because Claude Code is a single-user agent — no benefit to splitting KV memory across 4 slots — and it lets the whole KV budget go to one big conversation. To repoint at a different local model, move the alias in `config.yaml`, ensure that model's `-c` is large enough (Claude Code's prompt is ~24k+), then `curl -X POST :8090/api/unload && kill -HUP $(pgrep llama-swap)` — unloading is needed because a config reload alone doesn't recycle already-running upstreams.
 
-Caveat: Claude Code expects real tool-use semantics. Qwen2.5-Coder is the strongest local target for that; smaller / thinking-only models (gemma4-e4b, qwen35-4b) will chat but tool calls are unreliable.
+**Why qwen35-9b-mtp and not qwen25-coder-7b**: Claude Code needs the upstream to emit structured `tool_use` content blocks. Tested both — Qwen2.5-Coder emits the call as plain `<tools>{"name":...,"arguments":...}</tools>` text (it's code-tuned, not agent-tuned), so llama.cpp's tool-call parser doesn't recognize it (`Chat format: peg-native` in the upstream logs), Claude Code never sees a tool call, and the model confabulates file contents. Qwen3.5-9B has dedicated function-calling training and emits proper `tool_use` blocks (plus a `thinking` block, which Claude Code handles). Trade-off: ~13.5 tok/s vs 20+ for the coder, and every turn pays a hidden-think TTFT.
 
 
 ## Things worth trying next
