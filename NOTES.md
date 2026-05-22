@@ -48,7 +48,7 @@ All numbers measured on the same Xavier, coding-category sweeps, KV-q8 + the fla
 | `qwen35-4b` | — | 13.8 | thinking | Small thinking model |
 | `nemotron-nano-9b` | — | 11.7 | thinking | NVIDIA reasoning |
 | `deepseek-r1-14b` | — | 28 (inflated) | thinking | Heavy hidden reasoning |
-| `gemma4-e4b` | — | ~27 (inflated) | thinking | 4B-effective dense, Gemma-4 PLE |
+| `gemma4-e4b` | `claude-opus-4-7` | ~27 (inflated) | thinking | 4B-effective dense, Gemma-4 PLE. Alias lets Claude Code point here. |
 | `gemma4-26b-q3ks` | `gemma-fast` | 58.7 | 120 s | High throughput, slow TTFT (thinking) |
 | `gemma4-26b-q4km` | — | 6.8 | 75 s | Higher quant; experts on CPU |
 
@@ -103,6 +103,19 @@ curl -s http://localhost:8090/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model": "fast", "messages": [{"role":"user","content":"hello"}], "max_tokens": 32}'
 ```
+
+### Point Claude Code at it
+
+Claude Code (the CLI) talks the Anthropic `/v1/messages` protocol and hard-codes a model name like `claude-opus-4-7`. llama-swap implements that endpoint, so you just need a local model whose name/alias matches what the client asks for:
+
+```
+ANTHROPIC_BASE_URL=http://<jetson-ip>:8090 claude
+```
+
+Currently `gemma4-e4b` carries the `claude-opus-4-7` alias. To repoint at a different local model (e.g. the coder), move the alias in `config.yaml` and `kill -HUP` the llama-swap process — no restart needed.
+
+Caveat: Claude Code expects real tool-use semantics. Gemma-4 E4B will chat fine but tool calls may be flaky; `qwen25-coder-7b` is the better target if you need file/bash tools to actually work.
+
 
 ## Things worth trying next
 

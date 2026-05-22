@@ -139,6 +139,7 @@ models:
   gemma4-e4b:
     name: "Gemma-4 E4B Q8_0"
     description: "Effective-4B dense via Per-Layer Embeddings. Thinking model."
+    aliases: ["claude-opus-4-7"]
     cmd: |
       ${llama_server}
       -m ${gguf_dir}/google_gemma-4-E4B-it-Q8_0.gguf
