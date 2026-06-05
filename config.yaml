@@ -18,7 +18,7 @@ macros:
   llama_server: ./bin/llama-server
 
   # Where the GGUFs live (moved off ~/models earlier).
-  gguf_dir: /data/models/gguf
+  gguf_dir: /data/george/models/gguf
 
   # Speed flags applied to every model — see REPORT_4 in the bench project.
   # KV-q8 cuts KV-cache bytes-per-token in half with no measurable speed cost
@@ -72,8 +72,8 @@ models:
 
   qwen35-9b-mtp:
     name: "Qwen3.5 9B Q6_K (Unsloth MTP, n_max=4)"
-    description: "Best thinking-model config: 13.5 tok/s via built-in MTP heads. Emits structured tool_use blocks, so this is the Claude Code target. 96k single-slot ctx for long Claude Code sessions."
-    aliases: ["thinking", "9b", "claude-opus-4-7"]
+    description: "Best thinking-model config: 13.5 tok/s via built-in MTP heads. Emits structured tool_use blocks. 96k single-slot ctx for long sessions."
+    aliases: ["thinking", "9b"]
     cmd: |
       ${llama_server}
       -m ${gguf_dir}/Qwen3.5-9B-Q6_K.gguf
@@ -175,10 +175,142 @@ models:
       -a gemma4-26b-q4km
       --host 127.0.0.1 --port ${PORT}
 
+  # =========================================================================
+  # Big dense Qwens — full GPU via --no-mmap. See ../jetson-llm/README.md
+  # "Update" section: the ~10GB ceiling was mmap double-counting RAM, not
+  # NvMap. With --no-mmap weights load straight into the GPU buffer with no
+  # page-cached duplicate, and 18.5GB models fit on one Xavier. Expect
+  # ~2.6-2.9 tg/s — slow but the largest dense quality this board can serve.
+  # =========================================================================
+
+  qwen25-coder-32b:
+    name: "Qwen2.5-Coder 32B Q4_K_M (--no-mmap)"
+    description: "Biggest dense coder that fits: 18.5GB full-GPU via --no-mmap. ~2.6 tg/s, 12.8 pp."
+    aliases: ["coder-32b", "big-coder"]
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/Qwen2.5-Coder-32B-Instruct-Q4_K_M.gguf
+      --no-mmap
+      -c 4096 -ngl 99
+      ${speed_flags}
+      -a qwen25-coder-32b
+      --host 127.0.0.1 --port ${PORT}
+
+  qwen36-27b:
+    name: "Qwen3.6 27B Q4_K_M (--no-mmap, 96k single-slot)"
+    description: "Dense 27B, 16.7GB full-GPU via --no-mmap. ~2.9 tg/s, 16.9 pp. 96k single-slot ctx — Claude Code target."
+    aliases: ["27b", "qwen36", "claude-opus-4-7"]
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/Qwen_Qwen3.6-27B-Q4_K_M.gguf
+      --no-mmap
+      -c 98304 -np 1 -ngl 99
+      ${speed_flags}
+      -a qwen36-27b
+      --host 127.0.0.1 --port ${PORT}
+
+  # =========================================================================
+  # Vision-language models — accept image input via OpenAI chat format
+  # =========================================================================
+
+  smolvlm-500m:
+    name: "SmolVLM-500M-Instruct Q8_0 + f16 mmproj"
+    description: "Tiny vision-language model. Sub-second TTFT. Used by snes_bot's vision-driver script (scripts/play_vision.py); pair with grammar-constrained output to force a valid action label — the model's free-form instruction-following is weak."
+    aliases: ["vision", "smolvlm"]
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/smolvlm-500m/SmolVLM-500M-Instruct-Q8_0.gguf
+      --mmproj ${gguf_dir}/smolvlm-500m/mmproj-SmolVLM-500M-Instruct-f16.gguf
+      -c 4096 -ngl 99
+      -fa on -b 512 -ub 512 --no-warmup --metrics
+      -a smolvlm-500m
+      --host 127.0.0.1 --port ${PORT}
+
+  # smolvlm-2.2b: returns HTTP 400 "Invalid token" on image payloads on this
+  # llama.cpp build. --jinja didn't fix it. Text-only works. Skipping for
+  # benchmarks until we can debug deeper (likely a SmolVLM-Instruct-specific
+  # tokenizer/template bug or llama.cpp version issue).
+  smolvlm-2.2b:
+    name: "SmolVLM-Instruct 2.2B Q4_K_M + f16 mmproj (BROKEN — image path returns 400)"
+    description: "Image requests return 400 Invalid token on this llama.cpp build. Files staged but not currently usable."
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/smolvlm-2.2b/SmolVLM-Instruct-Q4_K_M.gguf
+      --mmproj ${gguf_dir}/smolvlm-2.2b/mmproj-SmolVLM-Instruct-f16.gguf
+      --jinja
+      -c 4096 -ngl 99
+      -fa on -b 512 -ub 512 --no-warmup --metrics
+      -a smolvlm-2.2b
+      --host 127.0.0.1 --port ${PORT}
+
+  gemma4-e4b-vision:
+    name: "Gemma-4 E4B Q8_0 + f16 mmproj (multimodal)"
+    description: "Same model file as gemma4-e4b but with the vision projector loaded. Thinking model — TTFT ~30s. Pair with long decision intervals (5s+ game time) so the model has time to reason."
+    aliases: ["gemma-vision"]
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/google_gemma-4-E4B-it-Q8_0.gguf
+      --mmproj ${gguf_dir}/gemma4-e4b-vision/mmproj-google_gemma-4-E4B-it-f16.gguf
+      --jinja
+      -c 8192 -ngl 99
+      -fa on -b 512 -ub 512 --no-warmup --metrics
+      -a gemma4-e4b-vision
+      --host 127.0.0.1 --port ${PORT}
+
+  qwen2-vl-2b:
+    name: "Qwen2-VL-2B-Instruct Q8_0 + f16 mmproj"
+    description: "2B vision-language from Alibaba. Non-thinking, strong instruction-following. Used by snes_bot overnight exploration."
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/qwen2-vl-2b/Qwen2-VL-2B-Instruct-Q8_0.gguf
+      --mmproj ${gguf_dir}/qwen2-vl-2b/mmproj-Qwen2-VL-2B-Instruct-f16.gguf
+      --jinja
+      -c 4096 -ngl 99
+      -fa on -b 512 -ub 512 --no-warmup --metrics
+      -a qwen2-vl-2b
+      --host 127.0.0.1 --port ${PORT}
+
+  qwen25-vl-3b:
+    name: "Qwen2.5-VL-3B-Instruct Q8_0 + f16 mmproj"
+    description: "3B vision-language from Alibaba. Larger, better than 2B for spatial reasoning. ~2s TTFT expected."
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/qwen25-vl-3b/Qwen2.5-VL-3B-Instruct-Q8_0.gguf
+      --mmproj ${gguf_dir}/qwen25-vl-3b/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf
+      --jinja
+      -c 4096 -ngl 99
+      -fa on -b 512 -ub 512 --no-warmup --metrics
+      -a qwen25-vl-3b
+      --host 127.0.0.1 --port ${PORT}
+
+  qwen25-vl-7b:
+    name: "Qwen2.5-VL-7B-Instruct Q4_K_M + f16 mmproj"
+    description: "7B vision-language from Alibaba (Q4 quant to fit). Should give the strongest reasoning of the non-thinking vision models, ~4-6s expected TTFT."
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/qwen25-vl-7b/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf
+      --mmproj ${gguf_dir}/qwen25-vl-7b/mmproj-Qwen2.5-VL-7B-Instruct-f16.gguf
+      --jinja
+      -c 4096 -ngl 99
+      -fa on -b 512 -ub 512 --no-warmup --metrics
+      -a qwen25-vl-7b
+      --host 127.0.0.1 --port ${PORT}
+
+  smolvlm2-2.2b:
+    name: "SmolVLM2-Instruct 2.2B Q4_K_M + f16 mmproj"
+    description: "Newer SmolVLM with video support; trying to dodge the chat-template bug that breaks v1 SmolVLM-Instruct-2.2B images."
+    cmd: |
+      ${llama_server}
+      -m ${gguf_dir}/smolvlm2-2.2b/SmolVLM2-2.2B-Instruct-Q4_K_M.gguf
+      --mmproj ${gguf_dir}/smolvlm2-2.2b/mmproj-SmolVLM2-2.2B-Instruct-f16.gguf
+      --jinja
+      -c 4096 -ngl 99
+      -fa on -b 512 -ub 512 --no-warmup --metrics
+      -a smolvlm2-2.2b
+      --host 127.0.0.1 --port ${PORT}
+
 # Not configured here because they haven't been measured cleanly in the
 # bench project at current defaults — see NOTES.md "untested" list:
-#   qwen25-coder-32b-q4km   (fails to load fully on GPU)
-#   qwen36-27b-q4km
 #   qwen35-35b-a3b-iq3xxs
 #   qwen36-35b-a3b-iq3xxs
 #   nemotron3-nano-30b-a3b-iq3xxs
